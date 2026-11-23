@@ -417,7 +417,14 @@
     unsubscribe = onSnapshot(q, snap => {
       allOrders = snap.docs.map(d=>({id:d.id,...d.data()}));
       setConn(true); window.applyFilters(); renderLeads();
-    }, () => { setConn(false); document.getElementById('loading-state').textContent='Ошибка загрузки.'; });
+    }, (error) => {
+      setConn(false);
+      console.error('Firestore orders subscription failed:', error);
+      const el = document.getElementById('loading-state');
+      el.textContent = error.code === 'permission-denied'
+        ? 'Нет доступа к заказам: проверьте Firestore → Rules и UID.'
+        : 'Ошибка загрузки: ' + (error.code || 'неизвестная причина');
+    });
   }
 
   onAuthStateChanged(auth, user => {
