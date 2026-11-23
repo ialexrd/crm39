@@ -157,10 +157,8 @@
 <div class="login-wrap" id="login-wrap">
   <div class="login-card">
     <div class="login-logo">ЧИСТКА39 <span>/ тестовая CRM</span></div>
-    <div class="login-field"><label>Email</label><input id="l-email" type="email" placeholder="you@example.com" onkeydown="if(event.key==='Enter')window.doLogin()"></div>
-    <div class="login-field"><label>Пароль</label><input id="l-pass" type="password" placeholder="••••••••" onkeydown="if(event.key==='Enter')window.doLogin()"></div>
-    <div class="login-error" id="login-error"></div>
-    <button class="btn-primary" id="login-btn" onclick="window.doLogin()" style="width:100%">Войти</button>
+    <div class="login-error" id="login-error" style="min-height:0;margin-bottom:12px;overflow-wrap:anywhere"></div>
+    <button class="btn-primary" id="login-btn" onclick="window.doLogin()" style="width:100%">Войти через Google</button>
   </div>
 </div>
 
@@ -251,7 +249,7 @@
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.0/firebase-app.js";
   import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, addDoc, doc, updateDoc, deleteDoc, onSnapshot, query, orderBy } from "https://www.gstatic.com/firebasejs/11.0.0/firebase-firestore.js";
-  import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.0.0/firebase-auth.js";
+  import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.0.0/firebase-auth.js";
 
   const firebaseConfig = {
     apiKey: "AIzaSyCMOczuaW3VmmSSS-c1ssrHT-HUtPE80lM",
@@ -263,7 +261,9 @@
     measurementId: "G-RVY1HVC1QR"
   };
 
-  const ADMINS = ["alex.zzzz.99@mail.ru"];
+  // First sign in with Google, copy your Firebase User UID, then put it here.
+  // No access to orders is granted in the UI until an administrator UID is configured.
+  const ADMIN_UIDS = [];
   const SHEETS_URL = ""; // Separate test Google Sheet needed
 
   const app = initializeApp(firebaseConfig);
@@ -421,35 +421,61 @@
   }
 
   onAuthStateChanged(auth, user => {
+    const loginWrap = document.getElementById('login-wrap');
+    const appElement = document.getElementById('app');
+    const loginButton = document.getElementById('login-btn');
+    const errorBox = document.getElementById('login-error');
+    if (user && !ADMIN_UIDS.includes(user.uid)) {
+      // Show only the Firebase Auth UID. Never start a Firestore data listener.
+      isAdmin = false;
+      if (unsubscribe) { unsubscribe(); unsubscribe = null; }
+      loginWrap.style.display = 'flex';
+      appElement.style.display = 'none';
+      errorBox.textContent = 'Google-вход выполнен. Доступ к CRM пока закрыт. Ваш User UID: ' + user.uid + '. Скопируйте UID для настройки прав доступа.';
+      loginButton.textContent = 'Выйти из Google';
+      loginButton.disabled = false;
+      loginButton.onclick = () => signOut(auth);
+      return;
+    }
     if (user) {
-      isAdmin = ADMINS.includes(user.email);
-      document.getElementById('login-wrap').style.display = 'none';
-      document.getElementById('app').style.display = 'block';
+      isAdmin = true;
+      loginWrap.style.display = 'none';
+      appElement.style.display = 'block';
+      errorBox.textContent = '';
       const badge = document.getElementById('role-badge');
-      badge.textContent = isAdmin ? 'Админ' : 'Специалист';
-      badge.className = 'role-badge ' + (isAdmin ? 'admin' : 'spec');
-      document.getElementById('tab-add').style.display = isAdmin ? '' : 'none';
-      document.getElementById('tab-leads').style.display = isAdmin ? '' : 'none';
+      badge.textContent = 'Админ';
+      badge.className = 'role-badge admin';
+      document.getElementById('tab-add').style.display = '';
+      document.getElementById('tab-leads').style.display = '';
       buildTableHead(); initDates(); startListening();
     } else {
-      document.getElementById('login-wrap').style.display = 'flex';
-      document.getElementById('app').style.display = 'none';
+      loginWrap.style.display = 'flex';
+      appElement.style.display = 'none';
+      errorBox.textContent = '';
+      loginButton.textContent = 'Войти через Google';
+      loginButton.disabled = false;
+      loginButton.onclick = window.doLogin;
       if (unsubscribe) { unsubscribe(); unsubscribe = null; }
     }
   });
 
   window.doLogin = async function() {
-    const email = document.getElementById('l-email').value.trim();
-    const pass = document.getElementById('l-pass').value;
     const btn = document.getElementById('login-btn');
     const err = document.getElementById('login-error');
-    err.textContent = ''; btn.disabled = true; btn.textContent = 'Вход...';
+    err.textContent = '';
+    btn.disabled = true;
+    btn.textContent = 'Вход через Google...';
     try {
-      await signInWithEmailAndPassword(auth, email, pass);
+      await signInWithPopup(auth, new GoogleAuthProvider());
     } catch(e) {
-      const msgs = {'auth/invalid-credential':'Неверный email или пароль','auth/wrong-password':'Неверный пароль','auth/invalid-email':'Неверный email'};
-      err.textContent = msgs[e.code] || 'Ошибка входа';
-      btn.disabled = false; btn.textContent = 'Войти';
+      const messages = {
+        'auth/popup-closed-by-user': 'Вход отменён.',
+        'auth/popup-blocked': 'Браузер заблокировал окно Google. Разрешите всплывающие окна.',
+        'auth/unauthorized-domain': 'Добавьте домен сайта в Firebase Authentication → Settings → Authorized domains.'
+      };
+      err.textContent = messages[e.code] || ('Ошибка входа: ' + (e.code || 'неизвестная ошибка'));
+      btn.disabled = false;
+      btn.textContent = 'Войти через Google';
     }
   };
 
